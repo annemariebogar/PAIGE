@@ -7,7 +7,7 @@
 		char *str;
 	};
 	typedef union YYSTYPE YYSTYPE;
-	#include "test.tab.hpp"
+	#include "cFuncCall.tab.hpp"
 %}
 
 %%
