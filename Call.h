@@ -18,7 +18,7 @@ using namespace std;
 class Call
 {
 	private:
-		string scope, name, id;
+		string scope, name, id, type;
 		vector<string> args;
 
 	public:
@@ -26,6 +26,8 @@ class Call
 		void setName(string n);
 		void addArg(string a);
 		bool hasName();
+		bool sameID(string i);
+		void appendName(string n);
 		string print();
 };
 
