@@ -9,4 +9,7 @@ bison -d $bisonfile
 flex $flexfile
 cp $cflex $cppflex
 
-g++ $cppflex $compiledbison Cparse.cpp Call.cpp -fpermissive -std=c++11 -g -o $name
+#g++ $cppflex $compiledbison Cparse.cpp Call.cpp -fpermissive -std=c++11 -g -o $name
+#g++ $cppflex $compiledbison Function.cpp -fpermissive -std=c++11 -g -o $name
+g++ $cppflex $compiledbison DotParse.cpp -fpermissive -std=c++11 -g -o $name
+#g++ $cppflex $compiledbison -fpermissive -std=c++11 -g -o $name
