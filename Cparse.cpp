@@ -2,7 +2,7 @@
 	This program is part of the MLSA package under development at Fordham University Department of Computer and Information Science.
  	Cparse.cpp processes strings found in the C/C++ Island Grammar to print out a CSV with all function calls that include their ID, scope (the function they are found in), name, and all arguments
  	Author: Anne Marie Bogar
- 	Date: February 14, 2018
+ 	Date: May 9, 2018
  	this code can be copied or used and is without warrenty or support, but this header needs to be copied along with the program FU2017
  	Input: N/A
  	Output: csv file
@@ -16,6 +16,8 @@
 #include <string>
 #include <typeinfo>
 #include <vector>
+#include <algorithm>
+#include <cctype>
 #include "Cparse.h"
 #include "Call.h"
 using namespace std;
@@ -23,13 +25,12 @@ using namespace std;
 //default constructor -> set starting values for member variables
 Cparse::Cparse()
 {
-	arg = false;
-	memarg = false;
 	sub = "";
 	mem = "";
+	filename = "initialized";
 }
 
-//destructor -> delete all Call pointers and Callblock pointers
+//destructor -> delete all Call, Callblock, and Block pointers
 Cparse::~Cparse()
 {
 	for(int k=0; k<callList.size(); k++){
@@ -38,136 +39,175 @@ Cparse::~Cparse()
 	for(int j=0; j<calltab.size(); j++){
 		delete calltab[j];
 	}
+	for(int m=0; m<classtab.size(); m++){
+		delete classtab[m];
+	}
+	for(int i=0; i<functab.size(); i++){
+		delete functab[i];
+	}
 }
 
 //checks whether the AST is in an argument block or a member argument block
 //if in block, do not add argument unless it is the name of a subscript variable
 bool Cparse::checkarg(int tabcount, bool tick, bool memcall)
 {
-	if(arg){
+	if(calltab.back()->argIsOn()){
 		//checks whether the argument block has finished
-		if((argtab > tabcount)||((argtab == tabcount)&&(!tick))){
-			arg = false;
-			//cout << "no longer in arg\n";
-			return true;
+		if((calltab.back()->argtab() > tabcount)||((calltab.back()->argtab() == tabcount)&&(!tick))){
+			// block has finished -> turn off Arg variable and set mem to ""
+			calltab.back()->turnArgOff();
+			mem = "";
+			return true; // not on block -> can add argument
 		} else if(sub == "[]"){
-			//cout << "sub is true\n";
-			return true;
-		}
-		else if(memcall && !memarg){
-			//cout << "memcall && !memarg\n";
-			return true;
-		}
-		else {
-			//cout << "arg is true and sub is false\n";
-			return false;
-		}
-	}
-	if(memarg){
-		//checks whether the member argument block has finished
-		//cout << "checking memarg\n";
-		if((memtab > tabcount)||((memtab == tabcount)&&(!tick))){
-			memarg = false;
-			//cout << "memarg done\n";
-			return true;
+			return true; // add name of subscript
+		} else if(memcall && !calltab.back()->memIsOn()){
+			return true; // add Class name
 		} else {
-			//cout << "memarg is true\n";
-			return false;
+			return false; // in block -> cannot add argument
 		}
 	}
-	//cout << "not memarg or arg\n";
-	return true;
+	if(calltab.back()->memIsOn()){
+		//checks whether the member argument block has finished
+		if((calltab.back()->memtab() > tabcount)||((calltab.back()->memtab() == tabcount)&&(!tick))){
+			// block has finished -> turn off Mem variable and set mem to ""
+			calltab.back()->turnMemOff();
+			mem = "";
+			return true; // not in block -> can add argument
+		} else {
+			return false; // in block -> cannot add argument
+		}
+	}
+	return true; // not in block -> can add argument
 }
 
 //the AST is in an argument block
 void Cparse::markarg(int tabcount)
 {
-	arg = true;
-	argtab = tabcount;
+	// turn on Arg argument and set indent count
+	calltab.back()->turnArgOn(tabcount);
 }
 
 //the AST is in a member argument block
 void Cparse::markmemarg(int tabcount)
 {
-	memarg = true;
-	memtab = tabcount;
+	// turn on Mem argument and set indent count
+	calltab.back()->turnMemOn(tabcount);
 }
 
 //checks whether a call block has finished
 //if the indent is smaller than or equal to the call indent and there is no tick, the call block has finished
 void Cparse::checkblock(int tabcount, bool tick)
 {
+	//call block
 	int tabs = calltab.size();
 	for(int k = 0; k < tabs; k++){
 		if((calltab.back()->indent > tabcount)||((calltab.back()->indent == tabcount)&&(!tick))){
+			// not in block -> delete last Callblock object (dynamically allocated) and pop off vector
 			delete calltab.back();
 			calltab.pop_back();
 		}
 	}
-	//if(!calltab.empty())
-		//cout << calltab.size() << endl;
+	//class block - make sure there is a class at all times
+	int ctabs = classtab.size();
+	for(int k = 0; k < ctabs; k++){
+		if((classtab.back()->indent > tabcount)||((classtab.back()->indent == tabcount)&&(!tick))){
+			if(classtab.size() == 1)
+				// make sure that at least one Block object is always in the list
+				// turn off on variable to signify that Class definition is done
+				classtab.back()->turnOff();
+			else{
+				// not in block -> delete last Block object (dynamically allocated) and pop off vector
+				delete classtab.back();
+				classtab.pop_back();
+			}
+		}
+	}
+	//function block
+	int ftabs = functab.size();
+	for(int k = 0; k < ftabs; k++){
+		if((functab.back()->indent > tabcount)||((functab.back()->indent == tabcount)&&(!tick))){
+			// not in block -> delete last Block object (dynamically allocated) and pop off vector
+			delete functab.back();
+			functab.pop_back();
+		}
+	}
 }
 
 //checks whether the AST is inside a call block or an argument block
 bool Cparse::checkcall(int tabcount, bool tick, bool memcall=false)
 {
-	//bool j;
-	checkblock(tabcount, tick);
-	//cout << "after checkblock in checkcall\n";
+	checkblock(tabcount, tick); // check that inside Call/Class/Function block
 	if(calltab.empty()){
-		//cout << "there's no call\n";
-		//cout << "call tab size = " << calltab.size() << endl;
-		memarg = false;
-		arg = false;
-		//cout << "changed arg bool\n";
-		//cout << "calltab is empty\n";
-		return false;
+		// made sure mem variable is set to ""
+		mem = "";
+		return false; // not in function call block -> do not add argument
 	} else {
-		//cout << "there IS a call\n";
-		bool j = checkarg(tabcount, tick, memcall);
-		//if(!j){
-		//	cout << "checkarg returned false\n";
-		//}
-		return j;
+		return checkarg(tabcount, tick, memcall); // in call block -> check Arg and Mem before adding argument
 	}
+}
+
+// find the function call in callList that corresponds to the one in calltab
+int Cparse::findCall(string i)
+{
+	for(int k=0; k<callList.size(); k++){
+		if(callList[k]->sameID(i))
+			return k;
+	}
+	return -1; // if call cannot be found, return -1
 }
 
 //adds a new Call object to the list and a new Callblock object depending on the type of call
 void Cparse::addCall(int type, int tabcount, bool tick, string id)
 {
-	//cout << "in addCall\n";
-	checkcall(tabcount, tick);
-	//cout << "checked the block :)\n";
-	if(type && memarg){
-		//cout << "adding mem call AFTER other mem call\n";
-		memarg = false;
-		delete calltab.back();
-		calltab.pop_back();
-	} else {
-		if(!calltab.empty() && !arg)
-			callList.back()->addArg(id);
+	checkcall(tabcount, tick); // check that inside Call/Class/Function block
+	if(!calltab.empty()){
+		// check if member function call, and inside Mem block
+		if(type && calltab.back()->memIsOn()){
+			// set mem to "" to start over for new Call object
+			mem = "";
+		} else {
+			// if not in Arg block, add call as an argument to previous function call
+			if(!calltab.back()->argIsOn()){
+				int k = findCall(calltab.back()->identification);
+				if(k != -1)
+					callList[k]->addArg(id);
+			}
+		}
 	}
-	//cout << "adding call: " << id << endl;
-	calltab.push_back(new Callblock(type, tabcount));
-	//cout << to_string(calltab.size()) << " " << id << endl;
-	callList.push_back(new Call(function, id));
+	calltab.push_back(new Callblock(type, tabcount, id)); // add new function call to tabcount
+	if(!functab.empty())
+		callList.push_back(new Call(functab.back()->name, id, filename, type)); // add new call to callList with function name
+	else
+		callList.push_back(new Call("", id, filename, type)); // add new call to callList without function name
+	// always set mem to "" for new Call object
 	mem = "";
-	//cout << "call added!!\n";
-	//if(type == 1)
-	//	cout << callList.back()->print() << endl;
+}
+
+// this is for getting rid of \n and commas
+// again, I don't think this works, but needs to work for CSV file
+void editArg(string &s, string search)
+{
+	std::size_t found;
+	do{
+		found = s.find(search);
+  		if (found!=std::string::npos)
+  			s.replace(found, 1, "");
+  	}while(found!=std::string::npos);
 }
 
 //adds an argument to the last Call object in the list
 bool Cparse::addArgument(int tabcount, bool tick, string a)
 {
 	if(checkcall(tabcount, tick)){
-		callList.back()->addArg(a);
-		return true;
+		// inside call block, but not in arg/mem block -> can add argument
+		editArg(a, "\n"); // get rid of newlines
+		editArg(a, ","); // get rid of commas
+		int k = findCall(calltab.back()->identification);
+		if(k != -1)
+			callList[k]->addArg(a); // add argument to call in callList
+		return true; // agument was added
 	}
-	//cout << "not adding: " << a;
-	//if(!callList.empty())
-	//	cout << " from: " << callList.back()->print() << endl;
-	return false;
+	return false; // argument was NOT added
 }
 
 //adds a BINOP or UNOP argument
@@ -181,64 +221,101 @@ void Cparse::addOp(int tabcount, bool tick, string a)
 //either saves member attribute name for later or adds member function name to latest Call object
 void Cparse::addMem(int tabcount, bool tick, string attr)
 {
-	//cout << "in addMem\n";
 	if(checkcall(tabcount, tick, true)){
-		//cout << "in if(checkcall)\n";
+		// in call block but not Arg/Mem block
 		if((calltab.back()->type == 1) && !callList.back()->hasName()){
-			addCallName("OBJ."+attr);
-			markmemarg(tabcount);
-			//cout << callList.back()->print() << endl;
-		} else{
+			// set name of member function and begin with OBJ (for library functions)
+			addName("OBJ."+attr);
+			markmemarg(tabcount); // in Mem block
+		} else // attribute of member variable, not function -> add to mem variable
 			mem = "."+attr+mem;
-		}
-	} /*else {
-		cout << "didn't add mem name: ";
-		if(!callList.empty())
-			cout << callList.back()->print() << endl;
-	}*/
-	//cout << "not in a call\n";
+	} else if(!calltab.empty() && calltab.back()->memIsOn()){ // double member -> obj.func1().func2()
+		calltab.back()->checkDM();
+	}
 }
 
 //marks argument block and signals subscript type
 void Cparse::addSub(int tabcount, bool tick)
 {
 	if(checkcall(tabcount, tick)){
-		sub = "[]"; 
+		// in call block but not Arg/Mem block -> add argument
+		sub = "[]"; // let program know to watch for a subscript argument
+		markarg(tabcount); // in Arg block
+	} else if(!calltab.empty() && calltab.back()->memIsOn()) {
+		// in Mem block -> mark that it is also in Arg block, but do nothing else
 		markarg(tabcount);
 	}
 }
 
 //saves current function name
-void Cparse::addFunction(int tabcount, bool tick, string f)
+void Cparse::addFunction(int tabcount, bool tick, string f, bool memberfunc=false)
 {
-	checkblock(tabcount, tick);
-	function = f;
+	checkblock(tabcount, tick); // always check if in a block
+	if(memberfunc && !classtab.empty()){
+		// add function Block with name of function as Class::function
+		functab.push_back(new Block(tabcount, classtab.back()->name+"::"+f));
+	} else{
+		// function is not a member function -> just add Block with regular name
+		functab.push_back(new Block(tabcount, f));
+	}
+}
+
+// save the current class name
+void Cparse::addClass(int tabcount, bool tick, string c)
+{
+	checkblock(tabcount, tick); // always check if in a block
+	if(c != "definition"){ // this has to do with Clang AST
+		//if only one Block in classtab and not in class definition, just overwrite Block object
+		if(classtab.size() == 1 && !classtab.back()->on)
+			classtab.back()->reinstate(tabcount, c);
+		else // add a new Block object to classtab
+			classtab.push_back(new Block(tabcount, c));
+	}
 }
 
 //adds name of the function call to the last Call object in list
-void Cparse::addCallName(string name)
+void Cparse::addName(string name)
 {
-	if(!calltab.empty())
-		//if(name == " ")
-			//name = "**Undetermined Function**";
+	if(!calltab.empty()) // make sure there is actually a function call in calltab
 		callList.back()->setName(name);
 
+}
+
+// add function call name to last Call object in list
+void Cparse::addCallName(int tabcount, bool tick, string name)
+{
+	if(checkcall(tabcount, tick)){
+		// in call block but not Arg/Mem block
+		if(!calltab.empty()){
+			if(!calltab.back()->type) // if the latest call is not a member function call
+				addName(name);
+		}
+	}
 }
 
 //adds variable argument
 //potential to be a member variable, so adds mem (if no mem, the value is "" and nothing happens)
 void Cparse::addVar(int tabcount, bool tick, string a)
 {
-	if(addArgument(tabcount, tick, a+mem))
-		mem = "";
+	if(addArgument(tabcount, tick, a+mem+sub)) // addArgument adds the argument, or sends back -1 if not added
+		mem = "", sub = ""; // set both to "" to prepare for new argument
 }
 
-//adds Parameter variable argument
-//potential to be subscript variable, so adds sub (if no sub, value is "" and nothing happens)
-void Cparse::addParmVar(int tabcount, bool tick, string a)
+// adds Class name to function (dynamic dispatch)
+void Cparse::addDynamicClass(int tabcount, bool tick, string c)
 {
-	if(addArgument(tabcount, tick, a+sub))
-		sub = "";
+	checkcall(tabcount, tick); // always check if in block
+	if(!calltab.empty() && calltab.back()->memIsOn() && !calltab.back()->argIsOn() && !calltab.back()->doublemem){
+		// inside a call block, inside Mem block, not inside Arg block, and no double mem [ obj.func1().func2() ]
+		callList.back()->appendName(c); // add Class to latest function call
+	}
+}
+
+// saves filename
+void Cparse::addFilename(string f)
+{
+	if(filename.find(".c") == -1) // if filename ends with .c or .cpp, leave be -> this is the program and everything after is defined in this program
+  		filename = f;
 }
 
 //any Call without a name is tagged as **Undetermined_Function**
