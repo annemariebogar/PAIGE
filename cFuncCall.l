@@ -1,3 +1,4 @@
+%{
 	#include <iostream>
 	#include <string>
 	using namespace std;
@@ -7,99 +8,133 @@
 		char *str;
 	};
 	typedef union YYSTYPE YYSTYPE;
-	#include "cFuncCall.tab.hpp"
+	#include "cFunCall.tab.hpp"
 %}
 
 %%
 
 	/* function declaration */
-"-FunctionDecl"						{ 	yylval.str = strdup(yytext);
-										return FUNC; 
-									}
+"-FunctionDecl"																{ return FUNC; }
 
-"'"									{ return *yytext; }
+	/* member function declaration */
+"-CXXMethodDecl"|"-CXXConstructorDecl"|"-CXXDestructorDecl"					{ return MEMFUNC; }
 
-"|"									{ 
-										yylval.str = strdup(yytext);
-										//cout << "TAB: " << yylval.str << endl;
-										return TAB;
-									}
+	/* must return the actual text (') to be used in Bison rule */
+"'"																			{ return *yytext; }
 
-"`"									{
-										yylval.str = strdup(yytext);
-										//cout << "TICK: " << yylval.str << endl;
-										return TICK;
-									}
+	/* tab in AST (sets apart blocks) */
+"|"																			{
+																				yylval.str = strdup(yytext);
+																				//cout << "TAB: " << yylval.str << endl;
+																				return TAB;
+																			}
+
+	/* tick in AST (shows that the line is still inside the block) */
+"`"																			{
+																				yylval.str = strdup(yytext);
+																				//cout << "TICK: " << yylval.str << endl;
+																				return TICK;
+																			}
+
+	/* class declaraction */
+"-CXXRecordDecl"|"-RecordDecl"												{ return CLASSNAME; }
 
 	/* function call */
-"-CallExpr"							{ return CALL; }
+"-CallExpr"																	{ return CALL; }
 
-"-CXXMemberCallExpr"				{ return MEMCALL; }
+	/* member function call */
+"-CXXMemberCallExpr"														{ return MEMCALL; }
 
-"-DeclRefExpr"						{ return REF; }
+	/* Dynamic Class keywords */
+"-ImplicitCastExpr"|"-CXXOperatorCallExpr"|"-CXXThisExpr"|"-CXXBindTemporaryExpr"	{ return DYNAM; }
+
+	/* keyword that starts like for argument (for subscript and member variables) */
+"-DeclRefExpr"																{ return REF; }
 
 	/* literal argument */
-"-IntegerLiteral"					{ return INT; }
+"-IntegerLiteral"															{ return INT; }
 
-	/* member variable arg */
-"-MemberExpr"						{ return MEMBER; }
+	/* member variable argument */
+"-MemberExpr"																{ return MEMBER; }
 
-	/* binop or unop arg */
-"-BinaryOperator"					{ return BINOP; }
+	/* binop argument */
+"-BinaryOperator"															{ return BINOP; }
 
-"-UnaryOperator"					{ return UNOP; }
+	/* unop argument */
+"-UnaryOperator"															{ return UNOP; }
 
-	/* string arg */
-"-StringLiteral"					{ return STR; }
+	/* string argument */
+"-StringLiteral"															{ return STR; }
 
-"Var"								{ return VAR; }
+	/* comes in same line as REF - keyword for variable name */
+"Var"																		{ return VAR; }
 
-"ParmVar"							{ return PARMVAR; }
+	/* comes in same line as REF - keyword for variable name */
+"ParmVar"																	{ return PARMVAR; }
 
-	/* subscript arg */
-"-ArraySubscriptExpr"				{ return SUB; }
+	/* comes in same line as REF - keyword for member function name */
+"CXXMethod"																	{ return MEMNAME; }
 
-"Function"							{ return FUNCTION; }
+	/* subscript argument */
+"-ArraySubscriptExpr"														{ return SUB; }
+
+	/* comes in same line as REF - keyword for regular function name */
+"Function"																	{ return FUNCTION; }
+
+	/* keywords before name of class */
+"class"|"struct"|"union"													{ return CLASS; }
 
 	/* variable ID number */
-"0x"[a-z0-9]*						{
-										yylval.str = strdup(yytext);
-										//cout << "ID: " << yylval.str << endl;
-										return ID;
-									}
+"0x"[a-z0-9]*																{
+																				yylval.str = strdup(yytext);
+																				// **line below for debugging IG
+																				//cout << "ID: " << yylval.str << endl;
+																				return ID;
+																			}
 
 	/* variable or function name */
-[a-zA-Z_-][a-zA-Z0-9_]*				{
-										yylval.str = strdup(yytext);
-										//cout << "NAME: " << yylval.str << endl;
-										return NAME;
-									}
+[~a-zA-Z_-][a-zA-Z0-9_:-]*														{
+																				yylval.str = strdup(yytext);
+																				// **line below for debugging IG
+																				//cout << "NAME: " << yylval.str << endl;
+																				return NAME;
+																			}
 
-"-"?[0-9]+"."?[0-9]*				{
-										yylval.str = strdup(yytext);
-										//cout << "Number: " << yylval.str << endl;
-										return NUMBER;
-									}
+	/* number */
+"-"?[0-9]+"."?[0-9]*														{
+																				yylval.str = strdup(yytext);
+																				// **line below for debugging IG
+																				//cout << "Number: " << yylval.str << endl;
+																				return NUMBER;
+																			}
 
 	/* string */
-"\""(\\.|[^"\\])*"\""				{
-										//yytext[strlen(yytext)-1] = 0;
-										//yylval.str = strdup(&yytext[1]);
-										//cout << "STRING: " << yylval.str << endl;
-										yylval.str = strdup(yytext);
-										return STRING;
-									}
+"\""(\\.|[^"\\])*"\""														{
+																				yytext[strlen(yytext)-1] = 0;
+																				yylval.str = strdup(&yytext[1]);
+																				// **line below for debugging IG
+																				//cout << "STRING: " << yylval.str << endl;
+																				return STRING;
+																			}
 
-"||"|"'|"|"|'"|"operator|"			{ }
+	/* filename ex: \home\mlsa\bin\cFunCall2.py */
+"/"[a-zA-Z0-9_/-]+"\.\."*[a-zA-Z0-9_/-]+"."[a-zA-Z]+						{
+																				yylval.str = strdup(yytext);
+																				return FILENAME;
+																			}
 
-	/* whitespace */
-[ \t\r\n]							{ }
+	/* water - anything that looks like a tab in AST but is not a tab */
+"||"|"'|"|"|'"|"operator|"|"operator||"										{ }
 
-	/* everything else */
-.									{ }
+	/* water - whitespace */
+[ \t\r\n]																	{ }
+
+	/* water - everything else */
+.																			{ }
 
 %%
 
 int yywrap(void) {
 	return 1;
 }
+
